@@ -5,10 +5,13 @@ from PIL import Image, ImageOps
 from keras.models import load_model
 import platform
 
-# Configuración de página
-st.set_page_config(page_title="Detección de Gestos con Teachable Machine", layout="wide")
+# Configuración de la página
+st.set_page_config(
+    page_title="Detección de Gestos con Teachable Machine",
+    layout="wide"
+)
 
-# Cargar modelo
+# Carga y cache del modelo
 @st.cache_resource
 def load_gesture_model():
     return load_model('keras_model.h5')
@@ -20,54 +23,68 @@ data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
 st.title("🖐️ Aplicación de Detección de Gestos")
 st.caption(f"Versión de Python: {platform.python_version()}")
 
-# Modo de entrada
+# Sidebar: selección de modo de entrada
 st.sidebar.title("Modo de Entrada")
 input_mode = st.sidebar.radio("Selecciona fuente de imagen:", ("📷 Cámara", "📁 Subir imagen"))
 
-# Descripción lateral
+# Sidebar: explicación del modelo
 with st.sidebar:
-    st.markdown("Usa un modelo entrenado con **Teachable Machine** para reconocer gestos con la cámara o imágenes subidas.")
-    st.markdown("---")
     if st.checkbox("Mostrar explicación del modelo"):
-        st.info("El modelo fue entrenado con imágenes de gestos y exportado como `.h5`. La red espera entradas de tamaño 224x224 con valores normalizados entre -1 y 1.")
+        st.info(
+            "Este modelo fue entrenado en Teachable Machine y exportado como `.h5`. "
+            "Es una red que espera entradas de 224×224 px normalizadas en [−1, 1]."
+        )
 
-# Obtener imagen
+# Obtener la imagen
 img = None
 if input_mode == "📷 Cámara":
-    img_file_buffer = st.camera_input("Captura una foto")
-    if img_file_buffer:
-        img = Image.open(img_file_buffer)
+    buf = st.camera_input("Captura una foto")
+    if buf:
+        img = Image.open(buf)
 else:
-    uploaded_file = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        img = Image.open(uploaded_file)
+    uploaded = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
+    if uploaded:
+        img = Image.open(uploaded)
 
-# Procesar y predecir si hay imagen
+# Procesar y predecir
 if img:
     st.image(img, caption="Imagen recibida", width=300)
 
-    # Preprocesamiento
-    img = ImageOps.fit(img, (224, 224), Image.ANTIALIAS)
-    img_array = np.array(img)
-    normalized_img = (img_array.astype(np.float32) / 127.0) - 1
-    data[0] = normalized_img
+    # --------- Preprocesamiento compatible Pillow ≥10 y <10 ---------
+    # Seleccionar método de remuestreo
+    if hasattr(Image, "Resampling"):
+        resample_method = Image.Resampling.LANCZOS
+    else:
+        resample_method = Image.ANTIALIAS
 
-    # Predicción
+    # Redimensionar y recortar manteniendo aspecto
+    img = ImageOps.fit(img, (224, 224), method=resample_method)
+    # -----------------------------------------------------------------
+
+    # Convertir a array y normalizar entre −1 y 1
+    arr = np.array(img).astype(np.float32)
+    norm = (arr / 127.0) - 1
+    data[0] = norm
+
+    # Inferencia
     prediction = model.predict(data)[0]
 
     # Mostrar resultados
     st.subheader("🔍 Resultados de Predicción")
-    class_labels = [f"Gesto {i+1}" for i in range(len(prediction))]  # Edita si tienes etiquetas específicas
-    results_df = {
+    # Asume tantas etiquetas como salidas del modelo
+    class_labels = [f"Gesto {i+1}" for i in range(len(prediction))]
+    result_df = {
         "Gesto": class_labels,
         "Probabilidad": prediction
     }
-    st.bar_chart(results_df, use_container_width=True)
+    st.bar_chart(result_df, use_container_width=True)
 
-    # Mostrar el más probable
-    max_index = np.argmax(prediction)
-    max_prob = prediction[max_index]
+    # Gestor de umbral
+    max_idx = np.argmax(prediction)
+    max_prob = prediction[max_idx]
     if max_prob > 0.5:
-        st.success(f"✅ Gesto detectado: **{class_labels[max_index]}** con probabilidad {max_prob:.2f}")
+        st.success(f"✅ Gesto detectado: **{class_labels[max_idx]}** ({max_prob:.2f})")
     else:
-        st.warning("❗ Ningún gesto fue reconocido con alta confianza.")
+        st.warning("❗ Ningún gesto reconocido con probabilidad suficiente.")
+else:
+    st.info("Seleccione una imagen desde la barra lateral para comenzar.")
