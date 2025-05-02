@@ -1,50 +1,73 @@
 import streamlit as st
-import cv2
 import numpy as np
-#from PIL import Image
-from PIL import Image as Image, ImageOps as ImagOps
+import cv2
+from PIL import Image, ImageOps
 from keras.models import load_model
-
 import platform
 
-# Muestra la versión de Python junto con detalles adicionales
-st.write("Versión de Python:", platform.python_version())
+# Configuración de página
+st.set_page_config(page_title="Detección de Gestos con Teachable Machine", layout="wide")
 
-model = load_model('keras_model.h5')
+# Cargar modelo
+@st.cache_resource
+def load_gesture_model():
+    return load_model('keras_model.h5')
+
+model = load_gesture_model()
 data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
 
-st.title("Reconocimiento de Imágenes")
-#st.write("Versión de Python:", platform.python_version())
-image = Image.open('OIG5.jpg')
-st.image(image, width=350)
+# Encabezado
+st.title("🖐️ Aplicación de Detección de Gestos")
+st.caption(f"Versión de Python: {platform.python_version()}")
+
+# Modo de entrada
+st.sidebar.title("Modo de Entrada")
+input_mode = st.sidebar.radio("Selecciona fuente de imagen:", ("📷 Cámara", "📁 Subir imagen"))
+
+# Descripción lateral
 with st.sidebar:
-    st.subheader("Usando un modelo entrenado en teachable Machine puedes Usarlo en esta app para identificar")
-img_file_buffer = st.camera_input("Toma una Foto")
+    st.markdown("Usa un modelo entrenado con **Teachable Machine** para reconocer gestos con la cámara o imágenes subidas.")
+    st.markdown("---")
+    if st.checkbox("Mostrar explicación del modelo"):
+        st.info("El modelo fue entrenado con imágenes de gestos y exportado como `.h5`. La red espera entradas de tamaño 224x224 con valores normalizados entre -1 y 1.")
 
-if img_file_buffer is not None:
-    # To read image file buffer with OpenCV:
-    data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
-   #To read image file buffer as a PIL Image:
-    img = Image.open(img_file_buffer)
+# Obtener imagen
+img = None
+if input_mode == "📷 Cámara":
+    img_file_buffer = st.camera_input("Captura una foto")
+    if img_file_buffer:
+        img = Image.open(img_file_buffer)
+else:
+    uploaded_file = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
+    if uploaded_file:
+        img = Image.open(uploaded_file)
 
-    newsize = (224, 224)
-    img = img.resize(newsize)
-    # To convert PIL Image to numpy array:
+# Procesar y predecir si hay imagen
+if img:
+    st.image(img, caption="Imagen recibida", width=300)
+
+    # Preprocesamiento
+    img = ImageOps.fit(img, (224, 224), Image.ANTIALIAS)
     img_array = np.array(img)
+    normalized_img = (img_array.astype(np.float32) / 127.0) - 1
+    data[0] = normalized_img
 
-    # Normalize the image
-    normalized_image_array = (img_array.astype(np.float32) / 127.0) - 1
-    # Load the image into the array
-    data[0] = normalized_image_array
+    # Predicción
+    prediction = model.predict(data)[0]
 
-    # run the inference
-    prediction = model.predict(data)
-    print(prediction)
-    if prediction[0][0]>0.5:
-      st.header('Izquierda, con Probabilidad: '+str( prediction[0][0]) )
-    if prediction[0][1]>0.5:
-      st.header('Arriba, con Probabilidad: '+str( prediction[0][1]))
-    #if prediction[0][2]>0.5:
-    # st.header('Derecha, con Probabilidad: '+str( prediction[0][2]))
+    # Mostrar resultados
+    st.subheader("🔍 Resultados de Predicción")
+    class_labels = [f"Gesto {i+1}" for i in range(len(prediction))]  # Edita si tienes etiquetas específicas
+    results_df = {
+        "Gesto": class_labels,
+        "Probabilidad": prediction
+    }
+    st.bar_chart(results_df, use_container_width=True)
 
-
+    # Mostrar el más probable
+    max_index = np.argmax(prediction)
+    max_prob = prediction[max_index]
+    if max_prob > 0.5:
+        st.success(f"✅ Gesto detectado: **{class_labels[max_index]}** con probabilidad {max_prob:.2f}")
+    else:
+        st.warning("❗ Ningún gesto fue reconocido con alta confianza.")
