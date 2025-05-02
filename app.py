@@ -19,11 +19,21 @@ def load_gesture_model():
 model = load_gesture_model()
 data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
 
+# Diccionario de descripciones para cada gesto
+# Ajusta estas entradas según las clases reales de tu modelo
+gesture_descriptions = {
+    "Gesto 1": "Encogimiento de hombros: transmite duda o indiferencia.",
+    "Gesto 2": "Pulgar arriba: indica aprobación o acuerdo.",
+    "Gesto 3": "Pulgar abajo: indica desaprobación o desacuerdo.",
+    "Gesto 4": "Señal de victoria (V): suele transmitir celebración o paz.",
+    # añade más según necesites…
+}
+
 # Encabezado
 st.title("🖐️ Aplicación de Detección de Gestos")
 st.caption(f"Versión de Python: {platform.python_version()}")
 
-# Sidebar: selección de modo de entrada
+# Sidebar: modo de entrada
 st.sidebar.title("Modo de Entrada")
 input_mode = st.sidebar.radio("Selecciona fuente de imagen:", ("📷 Cámara", "📁 Subir imagen"))
 
@@ -31,8 +41,8 @@ input_mode = st.sidebar.radio("Selecciona fuente de imagen:", ("📷 Cámara", "
 with st.sidebar:
     if st.checkbox("Mostrar explicación del modelo"):
         st.info(
-            "Este modelo fue entrenado en Teachable Machine y exportado como `.h5`. "
-            "Es una red que espera entradas de 224×224 px normalizadas en [−1, 1]."
+            "Modelo entrenado en Teachable Machine, exportado como `.h5`. "
+            "Recibe imágenes de 224×224 px, normalizadas en [−1, 1]."
         )
 
 # Obtener la imagen
@@ -50,18 +60,15 @@ else:
 if img:
     st.image(img, caption="Imagen recibida", width=300)
 
-    # --------- Preprocesamiento compatible Pillow ≥10 y <10 ---------
-    # Seleccionar método de remuestreo
+    # --------- Preprocesamiento Pillow ≥10 / <10 ---------
     if hasattr(Image, "Resampling"):
         resample_method = Image.Resampling.LANCZOS
     else:
         resample_method = Image.ANTIALIAS
-
-    # Redimensionar y recortar manteniendo aspecto
     img = ImageOps.fit(img, (224, 224), method=resample_method)
     # -----------------------------------------------------------------
 
-    # Convertir a array y normalizar entre −1 y 1
+    # Convertir a array y normalizar
     arr = np.array(img).astype(np.float32)
     norm = (arr / 127.0) - 1
     data[0] = norm
@@ -69,22 +76,27 @@ if img:
     # Inferencia
     prediction = model.predict(data)[0]
 
-    # Mostrar resultados
-    st.subheader("🔍 Resultados de Predicción")
-    # Asume tantas etiquetas como salidas del modelo
+    # Labels dinámicos
     class_labels = [f"Gesto {i+1}" for i in range(len(prediction))]
-    result_df = {
+
+    # Mostrar barra de probabilidades
+    st.subheader("🔍 Probabilidades por Gesto")
+    df_chart = {
         "Gesto": class_labels,
         "Probabilidad": prediction
     }
-    st.bar_chart(result_df, use_container_width=True)
+    st.bar_chart(df_chart, use_container_width=True)
 
-    # Gestor de umbral
-    max_idx = np.argmax(prediction)
-    max_prob = prediction[max_idx]
-    if max_prob > 0.5:
-        st.success(f"✅ Gesto detectado: **{class_labels[max_idx]}** ({max_prob:.2f})")
+    # Umbral para considerar gesto detectado
+    threshold = 0.5
+    detected = [(class_labels[i], prediction[i]) for i in range(len(prediction)) if prediction[i] > threshold]
+
+    if detected:
+        for name, prob in detected:
+            desc = gesture_descriptions.get(name, "Descripción no disponible.")
+            st.success(f"✅ **{name}** ({prob:.2f}) — {desc}")
     else:
         st.warning("❗ Ningún gesto reconocido con probabilidad suficiente.")
+
 else:
-    st.info("Seleccione una imagen desde la barra lateral para comenzar.")
+    st.info("Selecciona o captura una imagen para comenzar.")
